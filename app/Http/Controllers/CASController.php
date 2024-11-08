@@ -15,6 +15,12 @@ class CASController extends Controller {
         cas()->authenticate();
 
         $identity_attributes = cas()->getAttributes();
+        if (!isset($identity_attributes['UDC_IDENTIFIER'])) {
+            return response()->json([
+                'error'=>'UDC_IDENTIFIER was not provided by the SSO Server',
+                'attributes'=>$identity_attributes
+            ]);
+        }
         $identity = Identity::whereHas('identity_unique_ids', function($q) use ($identity_attributes){
             $q->where('name','bnumber')->where('value',$identity_attributes['UDC_IDENTIFIER']);
         })->first();
