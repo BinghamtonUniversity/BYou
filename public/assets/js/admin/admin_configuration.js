@@ -76,7 +76,7 @@ gforms.default_username_template = new gform(
     {"fields":[
         {type:"hidden", name:"id"},
         {type:"hidden", name:"name", value:'default_username_template'},
-        {type:"text", name:"config", label:"Default username Template", edit:true},
+        {type:"textarea", name:"config", label:"Default username Template", edit:true},
     ],
     "el":".default_username_template",
     "actions":[

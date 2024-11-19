@@ -121,30 +121,30 @@ class Identity extends Authenticatable
 
     public function username_generate($template, $iterator = 0) {
         $obj = [
+            'iamid' => $this->iamid,
             'first_name' => str_split(preg_replace("/[^a-z]/",'',strtolower($this->first_name)), 1),
             'last_name' => str_split(preg_replace("/[^a-z]/",'',strtolower($this->last_name)), 1),
-            'iterator' => $iterator,
             'default_username' => $this->default_username,
             'default_email' => $this->default_email,
-            'iamid' => $this->iamid,
             'ids'=> $this->ids,
             'additional_attributes' => $this->additional_attributes,
+            'iterator' => $iterator,
         ];
         $empty_obj = [
+            'iamid' => $this->iamid,
             'first_name' => [],
             'last_name' => [],
-            'iterator' => $iterator,
             'default_username' => '',
             'default_email' => '',
-            'iamid' => '',
             'ids' => [],
             'additional_attributes' => [],
+            'iterator' => $iterator,
         ];
         $m = new \Mustache_Engine;
-        $username = $m->render($template, $obj);
-        $empty_username = $m->render($template, $empty_obj);
+        $username = preg_replace('/\s+/','',$m->render($template, $obj));
+        $empty_username = preg_replace('/\s+/','',$m->render($template, $empty_obj));
         if ($username === $empty_username) {
-            abort(400,'Missing Required Fields for Username / Account ID Generation. Generated: "'.$username.'", Empty: "'.$empty_username.'"');
+            abort(400,'Not enough information for Username / Account ID generation. Generated: "'.$username.'", Empty: "'.$empty_username.'"');
         }
         return $username;
     }
@@ -241,11 +241,11 @@ class Identity extends Authenticatable
             $is_taken = false;
             $iterator = 0;
             $default_username_configuration = Configuration::where('name','default_username_template')->first();
-            if (!is_null($default_username_configuration)) {
-                $default_username_template = $default_username_configuration->config;
+            if (!isset($default_username_configuration) || !isset($default_username_configuration->config) || $default_username_configuration->config === '') {
+                abort(400,'Default username template is empty');
             }
             do {
-                $username = $this->username_generate($default_username_template, $iterator);
+                $username = $this->username_generate($default_username_configuration->config, $iterator);
                 if (!$this->username_check_available($username)) {
                     $is_taken = true;
                     $iterator++;
@@ -258,11 +258,11 @@ class Identity extends Authenticatable
         }
         if (($this->default_username !== '' && !is_null($this->default_username)) &&
             (!isset($this->default_email) || is_null($this->default_email) || $this->default_email == '')) {
-            $default_email_configuration = Configuration::where('name','default_email_domain')->first();
-            if (!is_null($default_email_configuration)) {
-                $default_email_domain = $default_email_configuration->config;
+            $default_email_domain = Configuration::where('name','default_email_domain')->first();
+            if (!isset($default_email_domain) || !isset($default_email_domain->config) || $default_email_domain->config === '') {
+                abort(400,'Email domain configuration is empty');
             }
-            $this->default_email = $this->default_username.'@'.$default_email_domain;
+            $this->default_email = $this->default_username.'@'.$default_email_domain->config;
             $must_save = true;
         }
         if (!isset($this->iamid) || is_null($this->iamid) || $this->iamid == '') {
@@ -280,13 +280,21 @@ class Identity extends Authenticatable
         }
     }
 
-    private function check_unique_id_collision() {
+    private function prechecks() {
         if ($this->first_name == '' || $this->last_name == '' || is_null($this->first_name) || is_null($this->last_name)) {
-            abort(400,'Identities must have a first and last name');
+            abort(400,'Identities must have non-empty first and last names');
         }
-        if (preg_replace("/[^a-z]/",'',strtolower($this->first_name)) == '' || preg_replace("/[^a-z]/",'',strtolower($this->last_name)) == '') {
-            abort(400,'Identities must have a valid first and last name with alphabetic characters');
+        // Make sure we have enough information to generate a username
+        if (!isset($this->default_username) || $this->default_username == '' || is_null($this->default_username)) {
+            $default_username_configuration = Configuration::where('name','default_username_template')->first();
+            if (!isset($default_username_configuration) || !isset($default_username_configuration->config) || $default_username_configuration->config === '') {
+                abort(400,'Default username template is empty');
+            }
+            // We don't actually save the username, we just need to make sure no errors are thrown (actual username created later)
+            $this->username_generate($default_username_configuration->config);
         }
+
+        // Make sure there are no collisions of unique IDs
         $ids = $this->set_ids;
         $no_ids = true;
         if (!is_array($ids)) {
@@ -608,21 +616,21 @@ class Identity extends Authenticatable
     protected static function booted()
     {
         static::creating(function ($identity) {
-            $identity->check_unique_id_collision();
+            $identity->prechecks();
         });
         static::created(function ($identity) {
             $identity->set_ids_attributes();
             $identity->set_defaults();
         });
         static::updating(function ($identity) {
-            $identity->check_unique_id_collision();
+            $identity->prechecks();
         });
         static::updated(function ($identity) {
             $identity->set_ids_attributes();
             $identity->set_defaults();
         });
         static::saving(function ($identity) {
-            $identity->check_unique_id_collision();
+            $identity->prechecks();
         });
         static::saved(function($identity){
             $identity->set_ids_attributes();
